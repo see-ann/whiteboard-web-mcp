@@ -4,6 +4,7 @@ import "@excalidraw/excalidraw/index.css";
 import { MoonIcon, RobotIcon, SunIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useBoard } from "./useBoard";
+import { useWebMCPTools, type WebMCPToolsState } from "./useWebMCPTools";
 
 type BoardStatus = {
   label: string;
@@ -12,20 +13,36 @@ type BoardStatus = {
   text: string;
 };
 
-function statusView(ready: boolean): BoardStatus {
-  if (ready) {
+function statusView(state: WebMCPToolsState): BoardStatus {
+  if (state.error) {
     return {
-      label: "Canvas ready",
-      detail: "Excalidraw imperative API attached",
+      label: "WebMCP registration failed",
+      detail: state.error.message,
+      dot: "bg-red-500",
+      text: "text-kumo-danger"
+    };
+  }
+  if (state.registered) {
+    return {
+      label: "WebMCP tools ready",
+      detail: "document.modelContext",
       dot: "bg-green-500",
       text: "text-kumo-success"
     };
   }
+  if (state.supported) {
+    return {
+      label: "Registering WebMCP tools…",
+      detail: "document.modelContext",
+      dot: "bg-yellow-500",
+      text: "text-kumo-warning"
+    };
+  }
   return {
-    label: "Loading canvas…",
-    detail: "Waiting for the Excalidraw API",
-    dot: "bg-yellow-500",
-    text: "text-kumo-warning"
+    label: "WebMCP testing is not enabled",
+    detail: "chrome://flags/#enable-webmcp-testing",
+    dot: "bg-kumo-inactive",
+    text: "text-kumo-subtle"
   };
 }
 
@@ -59,7 +76,8 @@ export default function App() {
     () => (localStorage.getItem("theme") as "light" | "dark") || "light"
   );
 
-  const status = statusView(actions.ready);
+  const webMCP = useWebMCPTools(actions);
+  const status = statusView(webMCP);
 
   return (
     <div className="flex h-screen flex-col bg-kumo-elevated">

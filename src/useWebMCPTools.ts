@@ -1,27 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  deleteTodoArgsSchema,
-  listTodosArgsSchema,
-  parseArgs,
-  renameTodoArgsSchema,
-  setTodoCompletedArgsSchema,
-  type Todo,
-  toolInputSchemas
-} from "./schemas";
-import type { TodoActions } from "./useTodos";
-
-const annotations = {
-  readOnlyHint: false,
-  untrustedContentHint: true
-};
-
-function presentTodo(todo: Todo) {
-  return {
-    id: todo.id,
-    text: todo.text,
-    completed: todo.completed
-  };
-}
+import { createNoteArgsSchema, parseArgs, toolInputSchemas } from "./schemas";
+import type { BoardActions } from "./useBoard";
 
 export type WebMCPToolsState = {
   supported: boolean;
@@ -29,8 +8,8 @@ export type WebMCPToolsState = {
   error: Error | null;
 };
 
-export function useWebMCPTools(actions: TodoActions): WebMCPToolsState {
-  const { deleteTodo, getTodos, renameTodo, setTodoCompleted } = actions;
+export function useWebMCPTools(actions: BoardActions): WebMCPToolsState {
+  const { createNote, getElements } = actions;
   const [state, setState] = useState<WebMCPToolsState>({
     supported: false,
     registered: false,
@@ -48,62 +27,36 @@ export function useWebMCPTools(actions: TodoActions): WebMCPToolsState {
     const controller = new AbortController();
     setState({ supported: true, registered: false, error: null });
 
-    // The browser creates add_todo from the HTML form; these are the four
-    // imperative tools that do not map naturally to one form submission.
     const tools: WebMCPTool[] = [
       {
-        name: "list_todos",
+        name: "create_note",
         description:
-          "List todos and their IDs, optionally filtered by active or completed status.",
-        inputSchema: toolInputSchemas.listTodos,
-        annotations: { ...annotations, readOnlyHint: true },
+          "Add a sticky note to the whiteboard. Omit x and y to place it automatically in free space.",
+        inputSchema: toolInputSchemas.createNote,
+        annotations: { readOnlyHint: false, untrustedContentHint: false },
         async execute(args) {
-          const { status = "all" } = parseArgs(listTodosArgsSchema, args);
-          const todos = getTodos(status);
-          return {
-            status,
-            count: todos.length,
-            todos: todos.map(presentTodo)
-          };
+          const { text, x, y } = parseArgs(createNoteArgsSchema, args);
+          const note = createNote(text, x, y);
+          return { message: "Note created.", note };
         }
       },
       {
-        name: "rename_todo",
+        name: "list_elements",
         description:
-          "Replace the text of an existing todo identified by its ID.",
-        inputSchema: toolInputSchemas.renameTodo,
-        annotations,
-        async execute(args) {
-          const { id, text } = parseArgs(renameTodoArgsSchema, args);
-          const todo = renameTodo(id, text);
-          return { message: "Todo renamed.", todo: presentTodo(todo) };
-        }
-      },
-      {
-        name: "set_todo_completed",
-        description:
-          "Set an existing todo to completed or active, identified by its ID.",
-        inputSchema: toolInputSchemas.setTodoCompleted,
-        annotations,
-        async execute(args) {
-          const { id, completed } = parseArgs(setTodoCompletedArgsSchema, args);
-          const todo = setTodoCompleted(id, completed);
-          return {
-            message: completed ? "Todo completed." : "Todo made active.",
-            todo: presentTodo(todo)
-          };
-        }
-      },
-      {
-        name: "delete_todo",
-        description:
-          "Permanently delete one existing todo identified by its ID.",
-        inputSchema: toolInputSchemas.deleteTodo,
-        annotations,
-        async execute(args) {
-          const { id } = parseArgs(deleteTodoArgsSchema, args);
-          const todo = deleteTodo(id);
-          return { message: "Todo deleted.", todo: presentTodo(todo) };
+          "List every element on the whiteboard with its ID, type, position and text.",
+        inputSchema: toolInputSchemas.listElements,
+        // Element text is written by whoever shares the board, so it reaches
+        // the agent as untrusted data rather than as instructions.
+        annotations: { readOnlyHint: true, untrustedContentHint: true },
+        async execute() {
+          const elements = getElements().map((element) => ({
+            id: element.id,
+            type: element.type,
+            x: Math.round(element.x),
+            y: Math.round(element.y),
+            text: "text" in element ? element.text : undefined
+          }));
+          return { count: elements.length, elements };
         }
       }
     ];
@@ -138,7 +91,7 @@ export function useWebMCPTools(actions: TodoActions): WebMCPToolsState {
 
     // Aborting unregisters every tool when the component unmounts.
     return () => controller.abort();
-  }, [deleteTodo, getTodos, renameTodo, setTodoCompleted]);
+  }, [createNote, getElements]);
 
   return state;
 }
