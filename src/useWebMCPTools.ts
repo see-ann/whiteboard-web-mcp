@@ -5,8 +5,8 @@ import {
   parseArgs,
   renameTodoArgsSchema,
   setTodoCompletedArgsSchema,
-  toolInputSchemas,
-  type Todo
+  type Todo,
+  toolInputSchemas
 } from "./schemas";
 import type { TodoActions } from "./useTodos";
 
