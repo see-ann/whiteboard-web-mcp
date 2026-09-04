@@ -24,8 +24,8 @@ function statusView(state: WebMCPToolsState): BoardStatus {
   }
   if (state.registered) {
     return {
-      label: "WebMCP tools ready",
-      detail: "document.modelContext",
+      label: `${state.toolNames.length} WebMCP tools ready`,
+      detail: state.toolNames.join(", "),
       dot: "bg-green-500",
       text: "text-kumo-success"
     };
@@ -76,7 +76,11 @@ export default function App() {
     () => (localStorage.getItem("theme") as "light" | "dark") || "light"
   );
 
-  const webMCP = useWebMCPTools(actions);
+  // Drives dynamic registration: tools that operate on existing elements are
+  // registered only once the board actually holds some.
+  const [elementCount, setElementCount] = useState(0);
+
+  const webMCP = useWebMCPTools(actions, elementCount);
   const status = statusView(webMCP);
 
   return (
@@ -103,7 +107,11 @@ export default function App() {
       </header>
 
       <main className="min-h-0 flex-1">
-        <Excalidraw excalidrawAPI={setApi} theme={mode} />
+        <Excalidraw
+          excalidrawAPI={setApi}
+          theme={mode}
+          onChange={(elements) => setElementCount(elements.length)}
+        />
       </main>
     </div>
   );
