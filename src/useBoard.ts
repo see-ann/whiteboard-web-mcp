@@ -86,6 +86,8 @@ export function useBoard(): {
         y: y ?? Math.floor(placed / NOTE_COLUMNS) * step
       };
 
+      // A label expands into a second, bound text element, so the container is
+      // the first of the two returned and the one whose ID identifies the note.
       const [note] = addElements([
         {
           type: "rectangle",

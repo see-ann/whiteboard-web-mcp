@@ -49,13 +49,36 @@ export function useWebMCPTools(actions: BoardActions): WebMCPToolsState {
         // the agent as untrusted data rather than as instructions.
         annotations: { readOnlyHint: true, untrustedContentHint: true },
         async execute() {
-          const elements = getElements().map((element) => ({
-            id: element.id,
-            type: element.type,
-            x: Math.round(element.x),
-            y: Math.round(element.y),
-            text: "text" in element ? element.text : undefined
-          }));
+          const all = getElements();
+
+          // A shape's label is a separate text element bound to it. Listing
+          // both would show the agent two entries for one visible note, so the
+          // text is folded into its container and the child is dropped.
+          const labels = new Map(
+            all
+              .filter(
+                (element) => "containerId" in element && element.containerId
+              )
+              .map((element) => [
+                (element as { containerId: string }).containerId,
+                (element as { text: string }).text
+              ])
+          );
+
+          const elements = all
+            .filter(
+              (element) => !("containerId" in element && element.containerId)
+            )
+            .map((element) => ({
+              id: element.id,
+              type: element.type,
+              x: Math.round(element.x),
+              y: Math.round(element.y),
+              text:
+                labels.get(element.id) ??
+                ("text" in element ? element.text : undefined)
+            }));
+
           return { count: elements.length, elements };
         }
       }
