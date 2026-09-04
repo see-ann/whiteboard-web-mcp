@@ -27,6 +27,7 @@ const NOTE_SIZE = 180;
 const NOTE_GAP = 20;
 const NOTE_COLUMNS = 5;
 const NOTE_FILL = "#fef3bd";
+const NOTE_TEXT_COLOR = "#1e1e1e";
 
 /**
  * Owns the Excalidraw imperative API handle.
@@ -97,7 +98,14 @@ export function useBoard(): {
           backgroundColor: NOTE_FILL,
           fillStyle: "solid",
           strokeColor: "transparent",
-          label: { text, fontSize: 16, verticalAlign: "top" }
+          // A label inherits its container's strokeColor, so the borderless
+          // note would otherwise render its text transparent and invisible.
+          label: {
+            text,
+            fontSize: 16,
+            verticalAlign: "top",
+            strokeColor: NOTE_TEXT_COLOR
+          }
         }
       ]);
 
