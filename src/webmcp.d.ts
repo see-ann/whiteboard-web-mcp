@@ -24,7 +24,12 @@ declare global {
       readOnlyHint?: boolean;
       untrustedContentHint?: boolean;
     };
-    execute(input: unknown, context: { signal: AbortSignal }): Promise<unknown>;
+    // Chrome documents a second { signal } argument but does not currently
+    // pass one, so it is optional here to keep callers from destructuring it.
+    execute(
+      input: unknown,
+      context?: { signal?: AbortSignal }
+    ): Promise<unknown>;
   }
 
   interface WebMCPRegisterToolOptions {

@@ -227,9 +227,17 @@ export function useBoard(): {
       direction: "horizontal" | "vertical"
     ): CreatedDiagram => {
       const horizontal = direction === "horizontal";
+
+      // Start below everything already drawn. A fixed offset stacked every
+      // diagram after the first onto the same rows, overlapping their labels.
+      const existing = apiRef.current?.getSceneElements() ?? [];
+      const lowest = existing.reduce(
+        (bottom, element) => Math.max(bottom, element.y + element.height),
+        Number.NEGATIVE_INFINITY
+      );
       const origin = {
         x: 0,
-        y: (apiRef.current?.getSceneElements().length ?? 0) > 0 ? 400 : 0
+        y: existing.length > 0 ? lowest + SHAPE_GAP : 0
       };
 
       // Excalidraw accepts caller-supplied IDs, so nodes and the arrows between
@@ -274,24 +282,35 @@ export function useBoard(): {
           // Every arrow needs its own start point and a real span. Sharing one
           // origin collapses them into zero-length lines stacked on each other,
           // and only the first is drawn.
+          // A node cannot flow into itself, and Excalidraw cannot bind an arrow
+          // to one element twice, so a self-loop is dropped like a bad key.
+          if (fromIndex === toIndex) {
+            return [];
+          }
+
           const gap = horizontal
             ? SHAPE_WIDTH + SHAPE_GAP
             : SHAPE_HEIGHT + SHAPE_GAP;
-          const span = (toIndex - fromIndex) * gap;
+          const forward = toIndex > fromIndex;
+          const shapeSize = horizontal ? SHAPE_WIDTH : SHAPE_HEIGHT;
+          // Signed, so a backwards edge spans right-to-left rather than being
+          // drawn forwards from the wrong node and pointing off the diagram.
+          const span = (toIndex - fromIndex) * gap - (forward ? shapeSize : 0);
+          // A forward arrow leaves the source's far edge; a backward one leaves
+          // its near edge and travels back.
+          const offset = fromIndex * gap + (forward ? shapeSize : 0);
+          const crossAxis = horizontal ? SHAPE_HEIGHT : SHAPE_WIDTH;
+          // Route a backwards edge outside the row. Drawn on the centre line it
+          // runs straight through every shape between its two endpoints.
+          const detour = forward ? crossAxis / 2 : crossAxis + SHAPE_GAP;
 
           return [
             {
               type: "arrow" as const,
-              x:
-                origin.x +
-                (horizontal ? fromIndex * gap + SHAPE_WIDTH : SHAPE_WIDTH / 2),
-              y:
-                origin.y +
-                (horizontal
-                  ? SHAPE_HEIGHT / 2
-                  : fromIndex * gap + SHAPE_HEIGHT),
-              width: horizontal ? Math.abs(span) - SHAPE_WIDTH : 0,
-              height: horizontal ? 0 : Math.abs(span) - SHAPE_HEIGHT,
+              x: origin.x + (horizontal ? offset : detour),
+              y: origin.y + (horizontal ? detour : offset),
+              width: horizontal ? span : 0,
+              height: horizontal ? 0 : span,
               start: { id: from },
               end: { id: to },
               strokeColor: SHAPE_STROKE,
@@ -303,15 +322,22 @@ export function useBoard(): {
         }
       );
 
-      addElements([...nodeSkeletons, ...edgeSkeletons]);
+      const created = addElements([...nodeSkeletons, ...edgeSkeletons]);
       apiRef.current?.scrollToContent(apiRef.current.getSceneElements(), {
         fitToContent: true
       });
 
+      // Excalidraw reassigns IDs, so the requested ones would be dead
+      // references. Report the IDs it actually issued, matching containers back
+      // to their nodes by position: labels are appended after the shapes.
+      const containers = created.filter(
+        (element) => !("containerId" in element && element.containerId)
+      );
+
       return {
-        nodes: nodes.map((node) => ({
+        nodes: nodes.map((node, index) => ({
           key: node.key,
-          id: idByKey.get(node.key) as string,
+          id: containers[index]?.id ?? "",
           text: node.text
         })),
         edgeCount: edgeSkeletons.length

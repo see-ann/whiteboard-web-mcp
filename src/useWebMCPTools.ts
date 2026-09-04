@@ -18,6 +18,26 @@ export type WebMCPToolsState = {
 };
 
 /**
+ * Return a failure as a value rather than throwing it.
+ *
+ * A thrown error reaches the agent as an empty errorText in Chrome's current
+ * build, leaving it nothing to correct against. Returning the message keeps
+ * validation feedback — an unknown shape, a missing element ID — legible.
+ */
+async function attempt<T>(
+  work: () => T
+): Promise<T | { error: string; ok: false }> {
+  try {
+    return work();
+  } catch (caught) {
+    return {
+      ok: false,
+      error: caught instanceof Error ? caught.message : "The tool call failed."
+    };
+  }
+}
+
+/**
  * Find the model context, whichever object this browser exposes it on.
  *
  * Chrome's imperative API and the W3C draft put it on `document`, but agents
@@ -96,11 +116,12 @@ export function useWebMCPTools(
           "Add a sticky note to the whiteboard. Omit x and y to place it automatically in free space.",
         inputSchema: toolInputSchemas.createNote,
         annotations: { readOnlyHint: false, untrustedContentHint: false },
-        async execute(args) {
-          const { text, x, y } = parseArgs(createNoteArgsSchema, args);
-          const note = createNote(text, x, y);
-          return { message: "Note created.", note };
-        }
+        execute: (args) =>
+          attempt(() => {
+            const { text, x, y } = parseArgs(createNoteArgsSchema, args);
+            const note = createNote(text, x, y);
+            return { message: "Note created.", note };
+          })
       },
       {
         name: "create_shape",
@@ -109,11 +130,12 @@ export function useWebMCPTools(
           "Draw a labelled rectangle, ellipse or diamond. Use this for diagram boxes rather than sticky notes. Omit x and y to place it automatically.",
         inputSchema: toolInputSchemas.createShape,
         annotations: { readOnlyHint: false, untrustedContentHint: false },
-        async execute(args) {
-          const options = parseArgs(createShapeArgsSchema, args);
-          const shape = createShape(options);
-          return { message: "Shape created.", shape };
-        }
+        execute: (args) =>
+          attempt(() => {
+            const options = parseArgs(createShapeArgsSchema, args);
+            const shape = createShape(options);
+            return { message: "Shape created.", shape };
+          })
       },
       {
         name: "create_diagram",
@@ -122,18 +144,20 @@ export function useWebMCPTools(
           "Draw a whole diagram at once: several labelled boxes plus the arrows between them, laid out and connected in a single call. Each node takes a short key that edges reference. Prefer this over repeated create_shape and connect_elements calls.",
         inputSchema: toolInputSchemas.createDiagram,
         annotations: { readOnlyHint: false, untrustedContentHint: false },
-        async execute(args, { signal }) {
-          const {
-            nodes,
-            edges = [],
-            direction = "horizontal"
-          } = parseArgs(createDiagramArgsSchema, args);
-          // A large diagram is one synchronous write, so the only useful place
-          // to honour cancellation is before it starts.
-          signal.throwIfAborted();
-          const diagram = createDiagram(nodes, edges, direction);
-          return { message: "Diagram created.", ...diagram };
-        }
+        execute: (args, context) =>
+          attempt(() => {
+            const {
+              nodes,
+              edges = [],
+              direction = "horizontal"
+            } = parseArgs(createDiagramArgsSchema, args);
+            // Chrome documents execute(input, { signal }) but currently invokes
+            // it without that second argument, so the context is read
+            // defensively rather than destructured.
+            context?.signal?.throwIfAborted();
+            const diagram = createDiagram(nodes, edges, direction);
+            return { message: "Diagram created.", ...diagram };
+          })
       }
     ];
 
@@ -191,14 +215,15 @@ export function useWebMCPTools(
           "Draw an arrow between two existing elements, bound so it follows them when either is moved. Use IDs from list_elements or a create tool.",
         inputSchema: toolInputSchemas.connectElements,
         annotations: { readOnlyHint: false, untrustedContentHint: false },
-        async execute(args) {
-          const { from, to, label } = parseArgs(
-            connectElementsArgsSchema,
-            args
-          );
-          const arrow = connectElements(from, to, label);
-          return { message: "Elements connected.", arrow };
-        }
+        execute: (args) =>
+          attempt(() => {
+            const { from, to, label } = parseArgs(
+              connectElementsArgsSchema,
+              args
+            );
+            const arrow = connectElements(from, to, label);
+            return { message: "Elements connected.", arrow };
+          })
       });
     }
 
