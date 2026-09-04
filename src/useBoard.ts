@@ -6,12 +6,26 @@ import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/tran
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useCallback, useRef, useState } from "react";
+import type { DiagramEdge, DiagramNode, ShapeKind } from "./schemas";
 
 export type CreatedNote = {
   id: string;
   text: string;
   x: number;
   y: number;
+};
+
+export type CreatedShape = {
+  id: string;
+  shape: ShapeKind;
+  text?: string;
+  x: number;
+  y: number;
+};
+
+export type CreatedDiagram = {
+  nodes: Array<{ key: string; id: string; text: string }>;
+  edgeCount: number;
 };
 
 export type BoardActions = {
@@ -21,6 +35,20 @@ export type BoardActions = {
     skeletons: ExcalidrawElementSkeleton[]
   ) => readonly NonDeletedExcalidrawElement[];
   createNote: (text: string, x?: number, y?: number) => CreatedNote;
+  createShape: (options: {
+    shape: ShapeKind;
+    text?: string;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+  }) => CreatedShape;
+  connectElements: (from: string, to: string, label?: string) => { id: string };
+  createDiagram: (
+    nodes: DiagramNode[],
+    edges: DiagramEdge[],
+    direction: "horizontal" | "vertical"
+  ) => CreatedDiagram;
 };
 
 const NOTE_SIZE = 180;
@@ -28,6 +56,11 @@ const NOTE_GAP = 20;
 const NOTE_COLUMNS = 5;
 const NOTE_FILL = "#fef3bd";
 const NOTE_TEXT_COLOR = "#1e1e1e";
+
+const SHAPE_WIDTH = 200;
+const SHAPE_HEIGHT = 100;
+const SHAPE_GAP = 120;
+const SHAPE_STROKE = "#1e1e1e";
 
 /**
  * Owns the Excalidraw imperative API handle.
@@ -117,8 +150,186 @@ export function useBoard(): {
     [addElements]
   );
 
+  const createShape = useCallback(
+    ({
+      shape,
+      text,
+      x,
+      y,
+      width = SHAPE_WIDTH,
+      height = SHAPE_HEIGHT
+    }: {
+      shape: ShapeKind;
+      text?: string;
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+    }): CreatedShape => {
+      const placed = apiRef.current?.getSceneElements().length ?? 0;
+      const position = {
+        x: x ?? (placed % NOTE_COLUMNS) * (SHAPE_WIDTH + NOTE_GAP),
+        y: y ?? Math.floor(placed / NOTE_COLUMNS) * (SHAPE_HEIGHT + NOTE_GAP)
+      };
+
+      const [element] = addElements([
+        {
+          type: shape,
+          ...position,
+          width,
+          height,
+          strokeColor: SHAPE_STROKE,
+          ...(text ? { label: { text, fontSize: 16 } } : {})
+        }
+      ]);
+
+      apiRef.current?.scrollToContent(element, { fitToContent: false });
+
+      return { id: element.id, shape, text, ...position };
+    },
+    [addElements]
+  );
+
+  const connectElements = useCallback(
+    (from: string, to: string, label?: string) => {
+      const elements = apiRef.current?.getSceneElements() ?? [];
+      const source = elements.find((element) => element.id === from);
+      const target = elements.find((element) => element.id === to);
+      if (!source || !target) {
+        throw new Error(
+          `Could not find ${!source ? `element "${from}"` : `element "${to}"`}.`
+        );
+      }
+
+      // start/end bind the arrow to the shapes themselves, so dragging either
+      // one keeps the connection rather than stranding a loose line.
+      const [arrow] = addElements([
+        {
+          type: "arrow",
+          x: source.x + source.width,
+          y: source.y + source.height / 2,
+          start: { id: from },
+          end: { id: to },
+          strokeColor: SHAPE_STROKE,
+          ...(label ? { label: { text: label, fontSize: 14 } } : {})
+        }
+      ]);
+
+      return { id: arrow.id };
+    },
+    [addElements]
+  );
+
+  const createDiagram = useCallback(
+    (
+      nodes: DiagramNode[],
+      edges: DiagramEdge[],
+      direction: "horizontal" | "vertical"
+    ): CreatedDiagram => {
+      const horizontal = direction === "horizontal";
+      const origin = {
+        x: 0,
+        y: (apiRef.current?.getSceneElements().length ?? 0) > 0 ? 400 : 0
+      };
+
+      // Excalidraw accepts caller-supplied IDs, so nodes and the arrows between
+      // them can be built in one pass instead of creating shapes, reading back
+      // their generated IDs, and connecting them in a second round trip.
+      const idByKey = new Map(
+        nodes.map((node) => [node.key, `node-${crypto.randomUUID()}`])
+      );
+
+      const nodeSkeletons: ExcalidrawElementSkeleton[] = nodes.map(
+        (node, index) => ({
+          type: node.shape ?? "rectangle",
+          id: idByKey.get(node.key),
+          x: origin.x + (horizontal ? index * (SHAPE_WIDTH + SHAPE_GAP) : 0),
+          y: origin.y + (horizontal ? 0 : index * (SHAPE_HEIGHT + SHAPE_GAP)),
+          width: SHAPE_WIDTH,
+          height: SHAPE_HEIGHT,
+          strokeColor: SHAPE_STROKE,
+          label: { text: node.text, fontSize: 16 }
+        })
+      );
+
+      const indexByKey = new Map(nodes.map((node, index) => [node.key, index]));
+
+      const edgeSkeletons: ExcalidrawElementSkeleton[] = edges.flatMap(
+        (edge) => {
+          const from = idByKey.get(edge.from);
+          const to = idByKey.get(edge.to);
+          const fromIndex = indexByKey.get(edge.from);
+          const toIndex = indexByKey.get(edge.to);
+          // An edge naming a node that does not exist is dropped rather than
+          // failing the whole diagram, so one typo cannot lose every shape.
+          if (
+            !from ||
+            !to ||
+            fromIndex === undefined ||
+            toIndex === undefined
+          ) {
+            return [];
+          }
+
+          // Every arrow needs its own start point and a real span. Sharing one
+          // origin collapses them into zero-length lines stacked on each other,
+          // and only the first is drawn.
+          const gap = horizontal
+            ? SHAPE_WIDTH + SHAPE_GAP
+            : SHAPE_HEIGHT + SHAPE_GAP;
+          const span = (toIndex - fromIndex) * gap;
+
+          return [
+            {
+              type: "arrow" as const,
+              x:
+                origin.x +
+                (horizontal ? fromIndex * gap + SHAPE_WIDTH : SHAPE_WIDTH / 2),
+              y:
+                origin.y +
+                (horizontal
+                  ? SHAPE_HEIGHT / 2
+                  : fromIndex * gap + SHAPE_HEIGHT),
+              width: horizontal ? Math.abs(span) - SHAPE_WIDTH : 0,
+              height: horizontal ? 0 : Math.abs(span) - SHAPE_HEIGHT,
+              start: { id: from },
+              end: { id: to },
+              strokeColor: SHAPE_STROKE,
+              ...(edge.label
+                ? { label: { text: edge.label, fontSize: 14 } }
+                : {})
+            }
+          ];
+        }
+      );
+
+      addElements([...nodeSkeletons, ...edgeSkeletons]);
+      apiRef.current?.scrollToContent(apiRef.current.getSceneElements(), {
+        fitToContent: true
+      });
+
+      return {
+        nodes: nodes.map((node) => ({
+          key: node.key,
+          id: idByKey.get(node.key) as string,
+          text: node.text
+        })),
+        edgeCount: edgeSkeletons.length
+      };
+    },
+    [addElements]
+  );
+
   return {
     setApi,
-    actions: { ready, getElements, addElements, createNote }
+    actions: {
+      ready,
+      getElements,
+      addElements,
+      createNote,
+      createShape,
+      connectElements,
+      createDiagram
+    }
   };
 }
