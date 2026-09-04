@@ -115,7 +115,18 @@ export default function App() {
 
   const handleChange = useCallback(
     (elements: readonly ExcalidrawElement[], appState: AppState) => {
-      setElementCount(elements.length);
+      // Count what an agent could actually connect. A labelled shape is two
+      // elements — the container and its bound text — and arrows are not
+      // connection targets, so counting either made connect_elements appear
+      // while there was still only one shape on the board.
+      setElementCount(
+        elements.filter(
+          (element) =>
+            element.type !== "arrow" &&
+            element.type !== "line" &&
+            !("containerId" in element && element.containerId)
+        ).length
+      );
 
       // Pan and zoom live in appState, not in the elements, so saving only the
       // elements restored the board at whatever the default camera was.

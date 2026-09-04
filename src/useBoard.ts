@@ -201,13 +201,27 @@ export function useBoard(): {
         );
       }
 
+      // Span the real gap between the two shapes. Leaving from the source's
+      // right edge with no width assumed the target sat directly beside it, so
+      // connecting anything above, below or behind drew a stub.
+      const sourceCentre = {
+        x: source.x + source.width / 2,
+        y: source.y + source.height / 2
+      };
+      const targetCentre = {
+        x: target.x + target.width / 2,
+        y: target.y + target.height / 2
+      };
+
       // start/end bind the arrow to the shapes themselves, so dragging either
       // one keeps the connection rather than stranding a loose line.
       const [arrow] = addElements([
         {
           type: "arrow",
-          x: source.x + source.width,
-          y: source.y + source.height / 2,
+          x: sourceCentre.x,
+          y: sourceCentre.y,
+          width: targetCentre.x - sourceCentre.x,
+          height: targetCentre.y - sourceCentre.y,
           start: { id: from },
           end: { id: to },
           strokeColor: SHAPE_STROKE,
