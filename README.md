@@ -1,129 +1,99 @@
-# WebMCP React Starter
+# Agent Whiteboard
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/agents/tree/main/examples/webmcp-react)
+A whiteboard that people draw on and agents edit — at the same time, on the same
+canvas, with no server, no API keys and no screenshots.
 
-A React todo app that exposes the same actions to people and browser-based AI agents with [WebMCP](https://github.com/webmachinelearning/webmcp), deployed as a Cloudflare Worker.
+Built with [WebMCP](https://github.com/webmachinelearning/webmcp), the W3C draft
+that lets a page hand structured tools directly to an AI agent running in the
+browser.
 
 > [!IMPORTANT]
-> WebMCP is experimental. The Chrome testing setup below is temporary and may change as browser support evolves.
+> WebMCP is experimental. It needs ChatGPT's built-in browser, or Chrome with
+> `chrome://flags/#enable-webmcp-testing` enabled.
 
-## What it demonstrates
+## Why a whiteboard
 
-- Four imperative tools to list, rename, complete or reopen, and delete todos
-- One declarative tool generated from the visible add-todo form
-- Shared React actions for UI controls and agent tools
-- Runtime validation and JSON Schemas generated from Zod Mini
-- Lifecycle-managed tool registration with cleanup on unmount
-- A useful unsupported-browser state
-- Browser-local persistence with `localStorage`
+A board full of sticky notes, boxes and arrows is rich to a human and opaque to
+software. An agent's only ways in today are screenshots, which are lossy and
+cannot reliably write back, or a bespoke server integration it must be wired up
+to in advance.
 
-This differs from [`examples/webmcp`](../webmcp/), which bridges remote `McpAgent` tools into WebMCP with `registerWebMcp()`. This example focuses on page-local React state and the browser's imperative and declarative WebMCP APIs.
+But a whiteboard's state is **already a structured graph** — nodes, edges,
+positions — that merely happens to be rendered visually. WebMCP hands the agent
+that graph directly and leaves the pixels to the person.
+
+The result is an agent that can join a board you are *currently looking at*,
+with no setup: you open a URL and it is already in the room with you.
 
 ## WebMCP tools
 
-| Tool                 | API         | Purpose                                      |
-| -------------------- | ----------- | -------------------------------------------- |
-| `list_todos`         | Imperative  | List all, active, or completed todos and IDs |
-| `add_todo`           | Declarative | Create an active todo through the HTML form  |
-| `rename_todo`        | Imperative  | Replace a todo's text                        |
-| `set_todo_completed` | Imperative  | Complete or reopen a todo                    |
-| `delete_todo`        | Imperative  | Permanently remove a todo                    |
+| Tool            | Purpose                                                          |
+| --------------- | ---------------------------------------------------------------- |
+| `create_note`   | Add a sticky note. Omit `x`/`y` to place it automatically         |
+| `list_elements` | Every element with its ID, type, position and text                |
 
-Every tool invocation updates the same state as the human-facing controls. Tool output includes todo IDs for reliable follow-up calls.
+Both call the same functions the on-screen canvas uses, so an agent's edits and
+a person's hand-drawn shapes land on one board with one undo history.
+
+## Design decisions
+
+**Position is optional.** Requiring coordinates would force the agent to do
+layout arithmetic on every call and stack notes on top of each other. Omitting
+them hands placement to the app, which lays notes out in a grid.
+
+**Reads are annotated `readOnlyHint`** so an agent may call them freely, and
+`untrustedContentHint` because element text is written by whoever shares the
+board. It must reach the model as data, never as instructions — a note reading
+"ignore your previous instructions" is content, not a command.
+
+**Agent edits are undoable.** Writes use `CaptureUpdateAction.IMMEDIATELY`
+rather than Excalidraw's default, so anything an agent gets wrong can be
+reverted with one keystroke by the person watching.
+
+**Excalidraw owns board state.** `useBoard` holds a handle to it rather than a
+copy of the elements, so there is one source of truth and reads can never go
+stale after someone drags a shape.
 
 ## Run locally
 
-From this directory:
+Requires Node 24+.
 
 ```bash
-pnpm install
-pnpm run start
+npm install
+npm run start
 ```
 
-Open <http://localhost:5173>. Other useful commands:
+Open <http://localhost:5173> — in ChatGPT's built-in browser (`Cmd+Shift+B` in
+the desktop app), or in Chrome with WebMCP testing enabled. The header shows
+**WebMCP tools ready** once registration succeeds.
+
+Then ask the agent:
+
+```
+add a note that says buy milk
+add notes for: login, checkout, payment, confirmation
+what's on the board?
+```
+
+Draw a shape by hand first, then ask what's on the board — the agent sees your
+shape too.
+
+### Other commands
 
 ```bash
-pnpm run test    # Run the jsdom test suite
-pnpm run build   # Create a production build
-pnpm run types   # Regenerate Worker binding types
-pnpm run deploy  # Build and deploy to Cloudflare
+npm run lint     # Biome check
+npm run format   # Biome check and fix
+npm run build    # production build
+npm run deploy   # build and deploy to Cloudflare Workers
 ```
 
-The directory is self-contained so create-cloudflare-cli can copy it as a standalone starter. Its package metadata and `.mcp.json` should remain usable outside this monorepo.
+## Built with
 
-## Connect a coding agent
+[Excalidraw](https://github.com/excalidraw/excalidraw) for the canvas, React and
+Vite, deployed on [Cloudflare Workers](https://developers.cloudflare.com/workers/).
+Scaffolded from Cloudflare's
+[WebMCP React starter](https://github.com/cloudflare/agents/tree/main/examples/webmcp-react).
 
-The checked-in [`.mcp.json`](./.mcp.json) configures [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) with experimental WebMCP support.
+## License
 
-1. Open `chrome://flags/#enable-webmcp-testing` in Chrome, enable **WebMCP for testing**, and relaunch Chrome.
-2. Open `chrome://inspect/#remote-debugging` and enable **Allow remote debugging for this browser instance**.
-3. Open your MCP-compatible coding agent from this directory and enable the project-level **chrome-devtools** server. Restart an already-running agent so it discovers `.mcp.json`.
-4. Start the app, open <http://localhost:5173> in that Chrome instance, and ask your agent:
-
-   > Add a todo to buy groceries on http://localhost:5173
-
-Chrome may ask you to approve the debugging connection, and your coding agent may separately require approval before executing a tool. The MCP configuration exposes only navigation plus WebMCP discovery and execution as direct tools.
-
-WebMCP is governed by the `tools` Permissions Policy. A cross-origin iframe embedding this app must include `allow="tools"`.
-
-## Key patterns
-
-A semantic form declares the add tool:
-
-```tsx
-<form
-  toolname="add_todo"
-  tooldescription="Add one active todo to the current list."
-  toolautosubmit=""
-  onSubmit={submitTodo}
->
-  <input
-    name="text"
-    required
-    maxLength={200}
-    toolparamdescription="The todo text, between 1 and 200 characters."
-  />
-  <button type="submit">Add todo</button>
-</form>
-```
-
-Imperative tools register for the component lifecycle:
-
-```tsx
-useEffect(() => {
-  const controller = new AbortController();
-
-  void document.modelContext?.registerTool(tool, {
-    signal: controller.signal
-  });
-
-  return () => controller.abort();
-}, [tool]);
-```
-
-Use declarative tools for existing semantic forms. Use imperative tools for reads, complex inputs, or actions that do not naturally map to one form submission. Keep runtime validation in either path; a browser-visible schema is not a validation boundary.
-
-## Persistence
-
-The default uses `localStorage` so it runs without configuration. See [Persist todos with Cloudflare D1](./docs/d1.md) to make todos durable across browsers and devices.
-
-## Project structure
-
-```text
-.mcp.json              Coding-agent connection for WebMCP tools
-docs/d1.md             Optional D1 persistence guide
-src/App.tsx            Todo UI and declarative WebMCP form
-src/schemas.ts         Zod Mini contracts and generated JSON Schemas
-src/useTodos.ts        Shared localStorage-backed todo actions
-src/useWebMCPTools.ts  Imperative WebMCP definitions and registration
-src/webmcp.d.ts        Experimental WebMCP type additions
-src/server.ts          Worker fallback for unmatched asset requests
-```
-
-## Resources
-
-- [WebMCP proposal and specification](https://github.com/webmachinelearning/webmcp)
-- [Chrome WebMCP imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api)
-- [Chrome WebMCP declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api)
-- [React on Cloudflare Workers](https://developers.cloudflare.com/workers/framework-guides/web-apps/react/)
-- [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/)
+MIT — see [LICENSE](./LICENSE).

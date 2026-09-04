@@ -5,3 +5,6 @@ dist/
 *.log
 .DS_Store
 .old-python-scaffold/
+
+# Planning notes, not part of the submission
+REQUIREMENTS.md
