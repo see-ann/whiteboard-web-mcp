@@ -25,7 +25,7 @@ function statusView(state: WebMCPToolsState): BoardStatus {
   if (state.registered) {
     return {
       label: `${state.toolNames.length} WebMCP tools ready`,
-      detail: state.toolNames.join(", "),
+      detail: `${state.surface} — ${state.toolNames.join(", ")}`,
       dot: "bg-green-500",
       text: "text-kumo-success"
     };

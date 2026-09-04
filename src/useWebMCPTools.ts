@@ -13,8 +13,32 @@ export type WebMCPToolsState = {
   supported: boolean;
   registered: boolean;
   toolNames: string[];
+  surface: string | null;
   error: Error | null;
 };
+
+/**
+ * Find the model context, whichever object this browser exposes it on.
+ *
+ * Chrome's imperative API and the W3C draft put it on `document`, but agents
+ * built against earlier drafts probe `navigator` and report a page as having
+ * no tools when only the other surface is populated.
+ */
+function findModelContext(): {
+  context: WebMCPModelContext;
+  surface: string;
+} | null {
+  if (document.modelContext) {
+    return { context: document.modelContext, surface: "document.modelContext" };
+  }
+  if (navigator.modelContext) {
+    return {
+      context: navigator.modelContext,
+      surface: "navigator.modelContext"
+    };
+  }
+  return null;
+}
 
 export function useWebMCPTools(
   actions: BoardActions,
@@ -31,6 +55,7 @@ export function useWebMCPTools(
     supported: false,
     registered: false,
     toolNames: [],
+    surface: null,
     error: null
   });
 
@@ -41,23 +66,25 @@ export function useWebMCPTools(
   const canConnect = elementCount > 1;
 
   useEffect(() => {
-    const modelContext = document.modelContext;
-    if (!modelContext) {
+    const found = findModelContext();
+    if (!found) {
       setState({
         supported: false,
         registered: false,
         toolNames: [],
+        surface: null,
         error: null
       });
       return;
     }
 
-    const registeredModelContext = modelContext;
+    const { context: registeredModelContext, surface } = found;
     const controller = new AbortController();
     setState({
       supported: true,
       registered: false,
       toolNames: [],
+      surface,
       error: null
     });
 
@@ -189,6 +216,7 @@ export function useWebMCPTools(
             supported: true,
             registered: true,
             toolNames: tools.map((tool) => tool.name),
+            surface,
             error: null
           });
         }
@@ -198,6 +226,7 @@ export function useWebMCPTools(
             supported: true,
             registered: false,
             toolNames: [],
+            surface,
             error:
               caught instanceof Error
                 ? caught

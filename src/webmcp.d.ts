@@ -32,13 +32,19 @@ declare global {
     exposedTo?: string[];
   }
 
+  interface WebMCPModelContext {
+    registerTool(
+      tool: WebMCPTool,
+      options?: WebMCPRegisterToolOptions
+    ): Promise<void>;
+  }
+
   interface Document {
-    readonly modelContext?: {
-      registerTool(
-        tool: WebMCPTool,
-        options?: WebMCPRegisterToolOptions
-      ): Promise<void>;
-    };
+    readonly modelContext?: WebMCPModelContext;
+  }
+
+  interface Navigator {
+    readonly modelContext?: WebMCPModelContext;
   }
 
   interface SubmitEvent {
