@@ -2,7 +2,10 @@ import { Badge, Button } from "@cloudflare/kumo";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { AppState } from "@excalidraw/excalidraw/types";
+import type {
+  AppState,
+  ExcalidrawImperativeAPI
+} from "@excalidraw/excalidraw/types";
 import {
   FilePlusIcon,
   MoonIcon,
@@ -10,6 +13,10 @@ import {
   SunIcon
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  HorizontalScrollbar,
+  type ViewportBounds
+} from "./HorizontalScrollbar";
 import { clearScene, loadScene, saveScene } from "./storage";
 import { useBoard } from "./useBoard";
 import { useWebMCPTools, type WebMCPToolsState } from "./useWebMCPTools";
@@ -93,6 +100,18 @@ export default function App() {
   const [restored] = useState(loadScene);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [bounds, setBounds] = useState<ViewportBounds | null>(null);
+  const [api, setApiState] = useState<ExcalidrawImperativeAPI | null>(null);
+
+  // useBoard keeps its handle private for the tools; the scrollbar needs one
+  // too, so both are set from the same callback.
+  const handleApi = useCallback(
+    (excalidrawApi: ExcalidrawImperativeAPI) => {
+      setApi(excalidrawApi);
+      setApiState(excalidrawApi);
+    },
+    [setApi]
+  );
 
   const handleChange = useCallback(
     (elements: readonly ExcalidrawElement[], appState: AppState) => {
@@ -101,6 +120,19 @@ export default function App() {
       // Pan and zoom live in appState, not in the elements, so saving only the
       // elements restored the board at whatever the default camera was.
       const { scrollX, scrollY, zoom } = appState;
+
+      // Board coordinates the scrollbar needs: where the view sits, and how far
+      // the drawing extends either side of it.
+      const lefts = elements.map((element) => element.x);
+      const rights = elements.map((element) => element.x + element.width);
+      setBounds({
+        left: -scrollX,
+        width: appState.width / zoom.value,
+        contentLeft: lefts.length ? Math.min(...lefts) : -scrollX,
+        contentRight: rights.length
+          ? Math.max(...rights)
+          : -scrollX + appState.width / zoom.value
+      });
 
       // onChange fires on every pointer move during a drag, so writing on each
       // one stutters the canvas. Save once the board has been still a moment.
@@ -156,9 +188,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="min-h-0 flex-1">
+      <main className="relative min-h-0 flex-1">
         <Excalidraw
-          excalidrawAPI={setApi}
+          excalidrawAPI={handleApi}
           theme={mode}
           initialData={
             restored
@@ -167,6 +199,7 @@ export default function App() {
           }
           onChange={handleChange}
         />
+        <HorizontalScrollbar api={api} bounds={bounds} />
       </main>
     </div>
   );
