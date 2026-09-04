@@ -1,8 +1,15 @@
 import { Badge, Button } from "@cloudflare/kumo";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
-import { MoonIcon, RobotIcon, SunIcon } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import {
+  FilePlusIcon,
+  MoonIcon,
+  RobotIcon,
+  SunIcon
+} from "@phosphor-icons/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { clearElements, loadElements, saveElements } from "./storage";
 import { useBoard } from "./useBoard";
 import { useWebMCPTools, type WebMCPToolsState } from "./useWebMCPTools";
 
@@ -80,6 +87,28 @@ export default function App() {
   // registered only once the board actually holds some.
   const [elementCount, setElementCount] = useState(0);
 
+  // Read once on mount. Excalidraw owns the scene from then on, so re-reading
+  // storage later would fight whatever is already on the canvas.
+  const [restored] = useState(loadElements);
+
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const handleChange = useCallback((elements: readonly ExcalidrawElement[]) => {
+    setElementCount(elements.length);
+
+    // onChange fires on every pointer move during a drag, so writing on each
+    // one stutters the canvas. Save once the board has been still a moment.
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => saveElements(elements), 500);
+  }, []);
+
+  useEffect(() => () => clearTimeout(saveTimer.current), []);
+
+  const startNewBoard = useCallback(() => {
+    clearElements();
+    location.reload();
+  }, []);
+
   const webMCP = useWebMCPTools(actions, elementCount);
   const status = statusView(webMCP);
 
@@ -102,6 +131,16 @@ export default function App() {
             <span className={`size-2 rounded-full ${status.dot}`} />
             <span className={`text-xs ${status.text}`}>{status.label}</span>
           </output>
+          {/* Clearing the board is a human action only: no tool can do it, so
+              a note telling an agent to wipe the canvas has nothing to call. */}
+          <Button
+            variant="ghost"
+            shape="square"
+            aria-label="New board"
+            title="New board"
+            onClick={startNewBoard}
+            icon={<FilePlusIcon size={16} />}
+          />
           <ModeToggle mode={mode} setMode={setMode} />
         </div>
       </header>
@@ -110,7 +149,8 @@ export default function App() {
         <Excalidraw
           excalidrawAPI={setApi}
           theme={mode}
-          onChange={(elements) => setElementCount(elements.length)}
+          initialData={restored ? { elements: restored } : null}
+          onChange={handleChange}
         />
       </main>
     </div>
