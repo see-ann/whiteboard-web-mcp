@@ -2,6 +2,7 @@ import { Badge, Button } from "@cloudflare/kumo";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type { AppState } from "@excalidraw/excalidraw/types";
 import {
   FilePlusIcon,
   MoonIcon,
@@ -9,7 +10,7 @@ import {
   SunIcon
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearElements, loadElements, saveElements } from "./storage";
+import { clearScene, loadScene, saveScene } from "./storage";
 import { useBoard } from "./useBoard";
 import { useWebMCPTools, type WebMCPToolsState } from "./useWebMCPTools";
 
@@ -89,23 +90,33 @@ export default function App() {
 
   // Read once on mount. Excalidraw owns the scene from then on, so re-reading
   // storage later would fight whatever is already on the canvas.
-  const [restored] = useState(loadElements);
+  const [restored] = useState(loadScene);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const handleChange = useCallback((elements: readonly ExcalidrawElement[]) => {
-    setElementCount(elements.length);
+  const handleChange = useCallback(
+    (elements: readonly ExcalidrawElement[], appState: AppState) => {
+      setElementCount(elements.length);
 
-    // onChange fires on every pointer move during a drag, so writing on each
-    // one stutters the canvas. Save once the board has been still a moment.
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => saveElements(elements), 500);
-  }, []);
+      // Pan and zoom live in appState, not in the elements, so saving only the
+      // elements restored the board at whatever the default camera was.
+      const { scrollX, scrollY, zoom } = appState;
+
+      // onChange fires on every pointer move during a drag, so writing on each
+      // one stutters the canvas. Save once the board has been still a moment.
+      clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(
+        () => saveScene(elements, { scrollX, scrollY, zoom }),
+        500
+      );
+    },
+    []
+  );
 
   useEffect(() => () => clearTimeout(saveTimer.current), []);
 
   const startNewBoard = useCallback(() => {
-    clearElements();
+    clearScene();
     location.reload();
   }, []);
 
@@ -149,7 +160,11 @@ export default function App() {
         <Excalidraw
           excalidrawAPI={setApi}
           theme={mode}
-          initialData={restored ? { elements: restored } : null}
+          initialData={
+            restored
+              ? { elements: restored.elements, appState: restored.viewport }
+              : null
+          }
           onChange={handleChange}
         />
       </main>
