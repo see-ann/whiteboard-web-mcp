@@ -247,16 +247,37 @@ export function useBoard(): {
         nodes.map((node) => [node.key, `node-${crypto.randomUUID()}`])
       );
 
+      // Excalidraw clips a bound label rather than growing its container, so a
+      // fixed box turned any real sentence into "ent discovers the too". Size
+      // every node to the longest label so the row stays aligned.
+      const longest = nodes.reduce(
+        (chars, node) => Math.max(chars, node.text.length),
+        0
+      );
+      const fontSize = longest > 60 ? 12 : longest > 30 ? 14 : 16;
+      const nodeWidth = Math.min(
+        Math.max(SHAPE_WIDTH, longest * fontSize * 0.42),
+        420
+      );
+      // Ellipses inscribe their text, so they need more room than a rectangle
+      // to hold the same words.
+      const nodeHeight = Math.max(
+        SHAPE_HEIGHT,
+        Math.ceil((longest * fontSize * 0.62) / nodeWidth) * fontSize * 2.4 + 48
+      );
+      const stepX = nodeWidth + SHAPE_GAP;
+      const stepY = nodeHeight + SHAPE_GAP;
+
       const nodeSkeletons: ExcalidrawElementSkeleton[] = nodes.map(
         (node, index) => ({
           type: node.shape ?? "rectangle",
           id: idByKey.get(node.key),
-          x: origin.x + (horizontal ? index * (SHAPE_WIDTH + SHAPE_GAP) : 0),
-          y: origin.y + (horizontal ? 0 : index * (SHAPE_HEIGHT + SHAPE_GAP)),
-          width: SHAPE_WIDTH,
-          height: SHAPE_HEIGHT,
+          x: origin.x + (horizontal ? index * stepX : 0),
+          y: origin.y + (horizontal ? 0 : index * stepY),
+          width: nodeWidth,
+          height: nodeHeight,
           strokeColor: SHAPE_STROKE,
-          label: { text: node.text, fontSize: 16 }
+          label: { text: node.text, fontSize }
         })
       );
 
@@ -288,18 +309,16 @@ export function useBoard(): {
             return [];
           }
 
-          const gap = horizontal
-            ? SHAPE_WIDTH + SHAPE_GAP
-            : SHAPE_HEIGHT + SHAPE_GAP;
+          const gap = horizontal ? stepX : stepY;
           const forward = toIndex > fromIndex;
-          const shapeSize = horizontal ? SHAPE_WIDTH : SHAPE_HEIGHT;
+          const shapeSize = horizontal ? nodeWidth : nodeHeight;
           // Signed, so a backwards edge spans right-to-left rather than being
           // drawn forwards from the wrong node and pointing off the diagram.
           const span = (toIndex - fromIndex) * gap - (forward ? shapeSize : 0);
           // A forward arrow leaves the source's far edge; a backward one leaves
           // its near edge and travels back.
           const offset = fromIndex * gap + (forward ? shapeSize : 0);
-          const crossAxis = horizontal ? SHAPE_HEIGHT : SHAPE_WIDTH;
+          const crossAxis = horizontal ? nodeHeight : nodeWidth;
           // Route a backwards edge outside the row. Drawn on the centre line it
           // runs straight through every shape between its two endpoints.
           const detour = forward ? crossAxis / 2 : crossAxis + SHAPE_GAP;
